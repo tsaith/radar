@@ -28,6 +28,7 @@ data/
 ref/
 results/
 tools/
+records/
 
 # Compiled lib.
 *.so
