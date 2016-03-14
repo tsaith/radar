@@ -1,6 +1,6 @@
 import numpy as np
 
-def power2db(p):
+def pow2db(p):
     """
     Power to db.
     p: normalized power.

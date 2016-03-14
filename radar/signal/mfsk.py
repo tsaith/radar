@@ -1,5 +1,7 @@
 import numpy as np
 from .waveforms import unit_square, staircase, sinusoidal
+from .cfar import detect_peaks
+from radar.utils.signal_utils import pow2db
 
 def transmitted_freq(t, num_steps, t_step, f_sweep, f_carrier, f_offset=None):
     """
@@ -84,6 +86,40 @@ def range_and_velocity(f_beat, dphi, t_step, f_offset):
     v = (dphi - f_offset*f_beat) / (t_step - f_offset)
 
     return R, v
+
+def multi_range_and_velocity(f_beat_arr, dphi_arr, t_step, f_offset):
+    """
+    Return the normalized range and velocity.
+    f_beat: normalized beat frequency.
+    dphi: normalized phase difference.
+    t_step: normalized time duration of each step.
+    f_offset: normalized frequency offset.
+    """
+
+    num_targets = f_beat_arr.size
+    R_arr = np.zeros(num_targets)
+    v_arr = np.zeros(num_targets)
+
+    for i in range(num_targets):
+        f_beat = f_beat_arr[i]
+        dphi = dphi_arr[f_beat]
+        R1, v1 = range_and_velocity(f_beat, dphi, t_step, f_offset)
+
+        f_beat = -f_beat_arr[i]
+        dphi = dphi_arr[f_beat]
+        R2, v2 = range_and_velocity(f_beat, dphi, t_step, f_offset)
+
+        if R1 > 0:
+            R = R1
+            v = v1
+        else:
+            R = R2
+            v = v2
+
+        R_arr[i] = R
+        v_arr[i] = v
+
+    return R_arr, v_arr
 
 def range_resolution(f_sweep):
 
@@ -188,3 +224,58 @@ def fake_sampled_signals(R_arr, v_arr, num_steps, t_step, f_sweep, f_carrier):
         signal_b += sinusoidal(f_beat_arr[i], t, amp0=amp_arr[i], phi0=dphi_arr[i])
 
     return signal_a, signal_b
+
+
+def Rv_from_signals(signal_a, signal_b, num_steps, t_chirp, t_step, f_sweep, f_offset, f_carrier):
+    """
+    Find the R and v from sampled signals.
+
+    signal_a: Sampled signal of sweep A.
+    signal_b: Sampled signal of sweep B.
+    t_chirp: Chirp time.
+    t_step: Time step.
+    f_offset: Frequency offset.
+    f_offset: Carrier frequency.
+    """
+
+    light_speed = 3e8 # Light speed (m/s)
+    wave_length = light_speed / f_carrier
+
+    # Range and velocity resolution
+    dR = range_resolution(f_sweep)
+    dv = phase_resolution(wave_length, t_chirp)
+
+    num_pairs = round(num_steps / 2)
+    mode_nyquist = round(num_pairs / 2) # Nyquist mode
+
+    # Normalized varaibles
+    t_step_n = t_step / t_chirp
+    f_offset_n = f_offset / f_sweep
+
+    # FFT
+    S_a = np.fft.fft(signal_a)
+    S_b = np.fft.fft(signal_b)
+
+    # Normalized magnitudes
+    mag_a = np.abs(S_a)
+    mag_b = np.abs(S_b)
+
+    # Power in db
+    pdb_a = pow2db(mag_a*mag_a)
+    pdb_b = pow2db(mag_b*mag_b)
+
+    # Phase differences
+    phi_a = np.angle(S_a)
+    phi_b = np.angle(S_b)
+    dphi = (phi_b - phi_a)/(2*np.pi)
+
+    # Detect peaks
+    peak_idx_m = detect_peaks(pdb_a[:mode_nyquist], num_train=10, num_guard=2, rate_fa=1e-3)
+
+    # Predicted range and velocity
+    R_n_pred, v_n_pred = multi_range_and_velocity(peak_idx_m, dphi, t_step_n, f_offset_n)
+
+    R_pred = R_n_pred * dR
+    v_pred = v_n_pred * dv
+
+    return R_pred, v_pred
