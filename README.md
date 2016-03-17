@@ -1,7 +1,7 @@
 # Automotive radar
 
 
-### Installation Dependencies:
+### Requirements
 
 * Python 3.4
 * [Numpy](http://www.numpy.org/)
